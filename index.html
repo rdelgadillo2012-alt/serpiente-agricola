@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐍 Serpiente Agrícola</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, #cdeb8f 0%, #8fc45e 100%);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #2f4014;
+  }
+  h1 { margin: 10px 0 4px; font-size: 1.6rem; text-shadow: 1px 1px 0 #fff8; }
+  #status { font-size: 1rem; margin-bottom: 8px; display: flex; gap: 20px; }
+  #wrap {
+    position: relative;
+    border: 8px solid #7a4a25;
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    background: #e7d29a;
+  }
+  canvas { display: block; background: repeating-conic-gradient(#e7d29a 0% 25%, #ddc588 0% 50%) 50% / 40px 40px; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex;
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    background: rgba(30,20,5,0.75);
+    color: #fff;
+    text-align: center;
+    border-radius: 4px;
+  }
+  #overlay button {
+    margin-top: 12px;
+    padding: 10px 22px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    background: #f2c744;
+    color: #4a2e00;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #controls { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 56px); gap: 6px; }
+  #controls button {
+    font-size: 1.4rem; border-radius: 10px; border: none;
+    background: #5b7d34; color: white; box-shadow: 0 3px 0 #3e5622;
+  }
+  #controls button:active { transform: translateY(3px); box-shadow: none; }
+  .up { grid-column: 2; grid-row: 1; }
+  .left { grid-column: 1; grid-row: 2; }
+  .down { grid-column: 2; grid-row: 2; }
+  .right { grid-column: 3; grid-row: 2; }
+  #hint { font-size: 0.8rem; margin-top: 10px; opacity: 0.75; }
+</style>
+</head>
+<body>
+  <h1>🐍 Serpiente Agrícola</h1>
+  <div id="status">
+    <span>🌽 Puntos: <b id="score">0</b></span>
+    <span>🏆 Récord: <b id="best">0</b></span>
+  </div>
+  <div id="wrap">
+    <canvas id="game" width="400" height="400"></canvas>
+    <div id="overlay">
+      <div id="overlayTitle" style="font-size:1.3rem;font-weight:bold;">¡Listo para sembrar!</div>
+      <div id="overlayMsg" style="font-size:0.95rem;margin-top:6px;">Come las cosechas y evita chocar</div>
+      <button id="startBtn">Jugar ▶</button>
+    </div>
+  </div>
+  <div id="controls">
+    <button class="up">⬆️</button>
+    <button class="left">⬅️</button>
+    <button class="down">⬇️</button>
+    <button class="right">➡️</button>
+  </div>
+  <div id="hint">Usa las flechas o WASD del teclado para mover al tractor</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const cell = 20;
+const cols = canvas.width / cell;
+const rows = canvas.height / cell;
+const crops = ['🌽','🥕','🍅','🥔','🍆','🌾'];
+
+let snake, dir, nextDir, food, score, best, alive, loopId, speed;
+
+let bestMemory = 0;
+function loadBest() {
+  return bestMemory;
+}
+function saveBest(v) {
+  bestMemory = v;
+}
+
+function reset() {
+  snake = [{x: 8, y: 10}, {x: 7, y: 10}, {x: 6, y: 10}];
+  dir = {x: 1, y: 0};
+  nextDir = {x: 1, y: 0};
+  score = 0;
+  speed = 140;
+  alive = true;
+  placeFood();
+  document.getElementById('score').textContent = score;
+  best = loadBest();
+  document.getElementById('best').textContent = best;
+}
+
+function placeFood() {
+  let ok = false;
+  while (!ok) {
+    const p = { x: Math.floor(Math.random()*cols), y: Math.floor(Math.random()*rows), emoji: crops[Math.floor(Math.random()*crops.length)] };
+    ok = !snake.some(s => s.x === p.x && s.y === p.y);
+    if (ok) food = p;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // food
+  ctx.font = (cell-2) + 'px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(food.emoji, food.x*cell + cell/2, food.y*cell + cell/2 + 1);
+  // snake
+  snake.forEach((s, i) => {
+    ctx.fillStyle = i === 0 ? '#3d6b1f' : '#5b9130';
+    ctx.beginPath();
+    ctx.roundRect(s.x*cell+1, s.y*cell+1, cell-2, cell-2, 5);
+    ctx.fill();
+    if (i === 0) {
+      ctx.font = '14px serif';
+      ctx.fillText('🚜', s.x*cell+cell/2, s.y*cell+cell/2+1);
+    }
+  });
+}
+
+function step() {
+  if (!alive) return;
+  dir = nextDir;
+  const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+  if (head.x < 0 || head.x >= cols || head.y < 0 || head.y >= rows || snake.some(s => s.x===head.x && s.y===head.y)) {
+    gameOver();
+    return;
+  }
+  snake.unshift(head);
+  if (head.x === food.x && head.y === food.y) {
+    score++;
+    document.getElementById('score').textContent = score;
+    placeFood();
+    if (speed > 60) speed -= 3;
+    clearInterval(loopId);
+    loopId = setInterval(step, speed);
+  } else {
+    snake.pop();
+  }
+  draw();
+}
+
+function gameOver() {
+  alive = false;
+  clearInterval(loopId);
+  if (score > best) { best = score; saveBest(best); document.getElementById('best').textContent = best; }
+  document.getElementById('overlayTitle').textContent = '¡Cosecha terminada! 🌾';
+  document.getElementById('overlayMsg').textContent = 'Puntaje: ' + score + ' — Toca jugar para volver a intentar';
+  document.getElementById('startBtn').textContent = 'Reintentar 🔁';
+  document.getElementById('overlay').style.display = 'flex';
+}
+
+function startGame() {
+  document.getElementById('overlay').style.display = 'none';
+  reset();
+  draw();
+  clearInterval(loopId);
+  loopId = setInterval(step, speed);
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if ((k==='arrowup'||k==='w') && dir.y===0) nextDir = {x:0,y:-1};
+  else if ((k==='arrowdown'||k==='s') && dir.y===0) nextDir = {x:0,y:1};
+  else if ((k==='arrowleft'||k==='a') && dir.x===0) nextDir = {x:-1,y:0};
+  else if ((k==='arrowright'||k==='d') && dir.x===0) nextDir = {x:1,y:0};
+});
+
+function bindBtn(cls, dx, dy) {
+  document.querySelector(cls).addEventListener('click', () => {
+    if (dx !== 0 && dir.x === 0) nextDir = {x:dx,y:0};
+    if (dy !== 0 && dir.y === 0) nextDir = {x:0,y:dy};
+  });
+}
+bindBtn('.up',0,-1);
+bindBtn('.down',0,1);
+bindBtn('.left',-1,0);
+bindBtn('.right',1,0);
+
+// swipe support
+let touchStart = null;
+canvas.addEventListener('touchstart', e => { touchStart = e.touches[0]; }, {passive:true});
+canvas.addEventListener('touchend', e => {
+  if (!touchStart) return;
+  const dx = e.changedTouches[0].clientX - touchStart.clientX;
+  const dy = e.changedTouches[0].clientY - touchStart.clientY;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 20 && dir.x===0) nextDir = {x:1,y:0};
+    else if (dx < -20 && dir.x===0) nextDir = {x:-1,y:0};
+  } else {
+    if (dy > 20 && dir.y===0) nextDir = {x:0,y:1};
+    else if (dy < -20 && dir.y===0) nextDir = {x:0,y:-1};
+  }
+  touchStart = null;
+});
+
+reset();
+draw();
+best = loadBest();
+document.getElementById('best').textContent = best;
+</script>
+</body>
+</html>
